@@ -1,3 +1,5 @@
+# au_detector.py
+
 import os
 import random
 import torch
@@ -52,16 +54,18 @@ def format_output(out_dict, task="au_recognition"):
         if task == "au_recognition":
             new_dict[f"au_{k}_intensity"] = round(v, 3)
         elif task == "au_detection":
-            new_dict[f"au_{k}"] = v
+            new_dict[f"au_{k}"] = int(round(v))  # ensure 0 or 1
         else:
             raise NotImplementedError(f"format_output() not defined for the task - {task}")
     return new_dict
 
 
-def get_au_data_from_frame(frame, device="cpu", weights_download_dir="./weights_libreface"):
+def init_solver_and_device():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     opts = ConfigObject({
         'seed': 0,
-        'ckpt_path': f'{weights_download_dir}/AU_Recognition/weights/combined_resnet.pt',
+        'ckpt_path': './facial_analysis_app/weights/au_recognition/combined_resnet.pt',
         'weights_download_id': "1CbnBr8OBt8Wb73sL1ENcrtrWAFWSSRv0",
         'image_inference': False,
         'au_recognition_data_root': '',
@@ -100,11 +104,19 @@ def get_au_data_from_frame(frame, device="cpu", weights_download_dir="./weights_
 
     set_seed(opts.seed)
     solver = CustomSolver(opts).to(device)
+    return solver, device
 
+
+def get_au_data_from_frame(frame, solver):
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    pil_image = Image.fromarray(image_rgb).resize((256, 256), Image.Resampling.LANCZOS)
+    pil_image = Image.fromarray(image_rgb)
 
-    detected_aus = solver.run(pil_image, task="au_detection")
-    au_intensities = solver.run(pil_image, task="au_recognition")
+    try:
+        au_detected = solver.run_pil(pil_image, task="au_detection")
+        au_intensity = solver.run_pil(pil_image, task="au_recognition")
 
-    return format_output(detected_aus, task="au_detection"), format_output(au_intensities, task="au_recognition"), solver
+        return format_output(au_detected, task="au_detection"), format_output(au_intensity, task="au_recognition")
+
+    except Exception as e:
+        print(f"[ERROR] AU Inference: {e}")
+        return {}, {}
